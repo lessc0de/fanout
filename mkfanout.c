@@ -1,8 +1,12 @@
 //  vim:ts=2:sw=2:et
 //==============================================================================
-/// @brief  Create a fanout device file
-/// @author Serge Aleynikov <saleyn@gmail.com>
-/// @date   2016-08-18
+/// @brief     Create a fanout device file
+//------------------------------------------------------------------------------
+/// @author    Serge Aleynikov <saleyn@gmail.com>
+/// @date      2016-08-18
+//  @copyright Copyright (c) 2016, Serge Aleynikov
+//------------------------------------------------------------------------------
+//  Fanout device copyright (c) 2010-2015, Bob Smith
 //==============================================================================
 /*
 Copyright (c) 2016, Serge Aleynikov
