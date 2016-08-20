@@ -1,6 +1,6 @@
 //  vim:ts=2:sw=2:et
 //==============================================================================
-/// @brief     Create a fanout device file
+/// @brief     Test fanout reader
 //------------------------------------------------------------------------------
 /// @author    Serge Aleynikov <saleyn@gmail.com>
 /// @date      2016-08-18
@@ -39,80 +39,82 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 */
 
 #include <stdio.h>
-#include <sys/stat.h>
-#include <unistd.h>
+#include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
 #include <ctype.h>
+#include <unistd.h>
+#include <time.h>
+#include <assert.h>
+#include <sys/stat.h>
+#include <fcntl.h>
 
-int get_device_id(char* devname);
-
-int main(int argc, char* argv[]) {
-  mode_t mode;
-  dev_t  dev;
-  int    error;
-  int    verbose = argc > 1 && strcmp(argv[1], "-v")==0;
-  int    i       = verbose ? 2 : 1;
-  int    devid   = get_device_id("fanout");
-
-  if (devid < 0) {
-	perror("fanout device not found");
-    exit(1);
-  }
-
-  if (argc < i+1) {
-    fprintf(stderr, "Usage: %s [-v] NewFanoutDeviceFileName\n", argv[0]);
-    exit(1);
-  }
-
-  if (verbose)
-    fprintf(stderr, "fanout-dev-id: %d\n", devid);
-
-  char* path = argv[i];
-  dev        = makedev(devid, 0);
-  mode       = S_IFCHR | 0664;
-  error      = mknod(path, mode, dev);
-  if (error < 0) {
-    perror("mknod");
-    return -1;
-  }
-
-  if (verbose) 
-    fprintf(stderr, "filename.....: %s\n", path);
-
-  return 0;
+int64_t now() {
+  struct timespec ts;
+  clock_gettime(CLOCK_REALTIME, &ts);
+  return (int64_t)ts.tv_sec*1000000000l + ts.tv_nsec;
 }
 
-int get_device_id(char* devname) {
-  FILE* f     = fopen("/proc/devices", "r");
-  int   devid = -1;
-  char  line[256];
-  int   line_num = 1;
+int main(int argc, char* argv[]) {
+  if (argc < 2) {
+    fprintf(stderr, "Usage: %s FanoutDevFile [-i]\n", argv[0]);
+    exit(1);
+  }
 
-  if (!f)
-	goto DONE;
+  int number = argc > 2 && strcmp(argv[2], "-i")==0;
+  int fd     = open(argv[1], O_RDONLY);
 
-  // Will hold each line scanned in from the file
-  while (!feof(f)) {
-    char* s = fgets(line, sizeof(line), f);
+  if (fd < 0) {
+    perror("open");
+    exit(1);
+  }
 
-    if (!s)
-	  goto DONE;
+  char buf[4094];
+  const char* end = buf + sizeof(buf);
+  char* p = buf;
 
-	int  num;
-	char dev[256];
-	int  n = sscanf(s, "%d %s\n", &num, dev);
+  long count  = 0;
+  long sumlat = 0;
+  long next   = 1;
 
-	if (n != 2) continue;
+  while (1) {
+    int   n = read(fd, p, end - p);
+    char* e = p + n;
+    long  diff;
 
-    if (strcmp(dev, devname) == 0) {
-	  devid = num;
-	  goto DONE;
+    while (p + 8 <= e) {
+      int64_t tm   = *(int64_t*)p;
+      
+      diff = number ? next-tm : now() - tm;
+      next = tm+1;
+      p   += 8;
+      count++;
+
+      if (diff < 0)
+        printf("n: %9d, diff: %ld offset: %d\n", count, diff, e-p);
+
+      if (tm == 0)
+        goto DONE;
+
+      sumlat += diff;
+    }
+
+    int left = e-p;
+
+    if (left <= 0)
+      p = buf;
+    else {
+      memcpy(buf, p, left);
+      p = buf + left;
     }
   }
 
 DONE:
-  // Close file and free line
-  fclose(f);
-  return devid;
-}
+  close(fd);
+
+  printf("Count:   %ld\n",  count);
+  printf("Speed  : %.0f/s\n", 1000000000.0*count / sumlat);
+  printf("Latency: %.3fus\n", (double)sumlat / 1000000.0 / count);
+
+  return 0;
+} 
